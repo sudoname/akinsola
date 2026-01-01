@@ -206,18 +206,19 @@ class ApplicationResource extends Resource
                     ])
                     ->formatStateUsing(fn (string $state): string => ucwords(str_replace('_', ' ', $state))),
 
-                Tables\Columns\TextColumn::make('score_total')
+                Tables\Columns\TextColumn::make('calculated_score')
                     ->label('Total Score')
-                    ->sortable()
-                    ->toggleable()
-                    ->formatStateUsing(function ($record) {
-                        if (!$record) return 'N/A';
-                        $weights = Setting::getScoringWeights();
-                        return number_format($record->calculateTotalScore($weights), 2);
+                    ->sortable(query: function (Builder $query, string $direction): Builder {
+                        return $query; // Can't sort calculated field
                     })
-                    ->tooltip(function ($record) {
-                        if (!$record) return '';
-                        return "Academic: {$record->score_academic}, Need: {$record->score_need}, Service: {$record->score_service}, Leadership: {$record->score_leadership}";
+                    ->toggleable()
+                    ->state(function (Application $record): string {
+                        $weights = Setting::getScoringWeights();
+                        $score = $record->calculateTotalScore($weights);
+                        return number_format($score, 2);
+                    })
+                    ->tooltip(function (Application $record): string {
+                        return "Academic: {$record->score_academic} | Need: {$record->score_need} | Service: {$record->score_service} | Leadership: {$record->score_leadership}";
                     }),
 
                 Tables\Columns\TextColumn::make('scholarship_amount')
