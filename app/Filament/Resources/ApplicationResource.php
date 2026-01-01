@@ -209,7 +209,16 @@ class ApplicationResource extends Resource
                 Tables\Columns\TextColumn::make('score_total')
                     ->label('Total Score')
                     ->sortable()
-                    ->toggleable(),
+                    ->toggleable()
+                    ->formatStateUsing(function ($record) {
+                        if (!$record) return 'N/A';
+                        $weights = Setting::getScoringWeights();
+                        return number_format($record->calculateTotalScore($weights), 2);
+                    })
+                    ->tooltip(function ($record) {
+                        if (!$record) return '';
+                        return "Academic: {$record->score_academic}, Need: {$record->score_need}, Service: {$record->score_service}, Leadership: {$record->score_leadership}";
+                    }),
 
                 Tables\Columns\TextColumn::make('scholarship_amount')
                     ->label('Scholarship Amount')
