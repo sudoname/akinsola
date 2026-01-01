@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php artisan filament:install:*)",
+      "Bash(php artisan make:model:*)",
+      "Bash(php artisan:*)",
+      "Bash(.env)",
+      "Bash(php -r:*)",
+      "Bash(key.txt)",
+      "Bash(cat:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
