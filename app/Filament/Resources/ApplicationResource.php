@@ -7,6 +7,9 @@ use App\Models\Application;
 use App\Models\AuditLog;
 use App\Models\Setting;
 use App\Notifications\ApplicationDecision;
+use App\Notifications\PaymentPendingNotification;
+use App\Notifications\PaymentVerifiedNotification;
+use App\Notifications\PaymentSentNotification;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -68,6 +71,43 @@ class ApplicationResource extends Resource
                             ->disabled(),
                     ])->columns(2),
 
+                Forms\Components\Section::make('Uploaded Documents')
+                    ->description('View all documents uploaded by the applicant')
+                    ->schema([
+                        Forms\Components\Placeholder::make('documents_list')
+                            ->label('Documents')
+                            ->content(function ($record) {
+                                if (!$record || !$record->documents || $record->documents->isEmpty()) {
+                                    return new \Illuminate\Support\HtmlString('<p class="text-sm text-gray-500">No documents uploaded yet</p>');
+                                }
+
+                                $html = '<div class="space-y-3">';
+
+                                foreach ($record->documents as $document) {
+                                    $typeLabel = ucwords(str_replace('_', ' ', $document->type));
+                                    $fileSize = $document->size_bytes ? round($document->size_bytes / 1024, 2) . ' KB' : 'Unknown size';
+                                    $uploadedDate = $document->uploaded_at ? $document->uploaded_at->format('M d, Y H:i') : 'Unknown date';
+
+                                    $html .= '<div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">';
+                                    $html .= '<div class="flex items-center space-x-3">';
+                                    $html .= '<svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>';
+                                    $html .= '<div>';
+                                    $html .= '<p class="text-sm font-semibold text-gray-900 dark:text-gray-100">' . $typeLabel . '</p>';
+                                    $html .= '<p class="text-xs text-gray-500 dark:text-gray-400">' . $fileSize . ' • Uploaded ' . $uploadedDate . '</p>';
+                                    $html .= '</div>';
+                                    $html .= '</div>';
+                                    $html .= '<a href="' . $document->getFullUrl() . '" target="_blank" class="inline-flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded transition"><svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>Download</a>';
+                                    $html .= '</div>';
+                                }
+
+                                $html .= '</div>';
+
+                                return new \Illuminate\Support\HtmlString($html);
+                            })
+                            ->columnSpanFull(),
+                    ])
+                    ->collapsible()
+                    ->collapsed(false),
                 Forms\Components\Section::make('Scoring')
                     ->schema([
                         Forms\Components\TextInput::make('score_academic')
@@ -168,6 +208,128 @@ class ApplicationResource extends Resource
                             ->columnSpanFull(),
                     ])
                     ->visible(fn ($record) => $record && $record->status === 'approved' && auth()->user()->isApprover()),
+
+                Forms\Components\Section::make('Bank Account Information')
+                    ->description('Bank account details provided by the winner for scholarship payment')
+                    ->schema([
+                        Forms\Components\Placeholder::make('bank_status')
+                            ->label('')
+                            ->content(fn ($record) => $record && $record->bank_account_number
+                                ? new \Illuminate\Support\HtmlString('<div class="text-green-600 dark:text-green-400 font-medium">✓ Bank account information provided</div>')
+                                : new \Illuminate\Support\HtmlString('<div class="text-yellow-600 dark:text-yellow-400 font-medium">⚠ Waiting for winner to provide bank account details</div>')
+                            )
+                            ->columnSpanFull(),
+
+                        Forms\Components\TextInput::make('bank_account_name')
+                            ->label('Account Holder Name')
+                            ->placeholder('Not provided yet')
+                            ->disabled()
+                            ->dehydrated(false),
+
+                        Forms\Components\TextInput::make('bank_name')
+                            ->label('Bank Name')
+                            ->placeholder('Not provided yet')
+                            ->disabled()
+                            ->dehydrated(false),
+
+                        Forms\Components\TextInput::make('bank_account_number')
+                            ->label('Account Number')
+                            ->placeholder('Not provided yet')
+                            ->disabled()
+                            ->dehydrated(false),
+
+                        Forms\Components\TextInput::make('bank_account_type')
+                            ->label('Account Type')
+                            ->placeholder('Not provided yet')
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->formatStateUsing(fn ($state) => $state ? ucfirst($state) : null),
+                    ])
+                    ->columns(2)
+                    ->visible(fn ($record) => $record && $record->status === 'approved')
+                    ->collapsible(),
+                Forms\Components\Section::make("Payment Tracking")
+                    ->description("Track scholarship payment status and send notifications to the winner")
+                    ->schema([
+                        Forms\Components\Placeholder::make("payment_status_badge")
+                            ->label("Current Status")
+                            ->content(function ($record) {
+                                if (!$record) return "N/A";
+
+                                $statusConfig = [
+                                    "not_applicable" => ["label" => "Not Applicable", "color" => "gray", "icon" => "⚪"],
+                                    "pending" => ["label" => "Payment Processing", "color" => "blue", "icon" => "🔄"],
+                                    "requirements_verified" => ["label" => "Requirements Verified", "color" => "indigo", "icon" => "✅"],
+                                    "sent" => ["label" => "💰 PAYMENT SENT", "color" => "green", "icon" => "✅"],
+                                    "received" => ["label" => "✅ PAYMENT RECEIVED", "color" => "emerald", "icon" => "✅"],
+                                ];
+
+                                $status = $record->payment_status ?? "not_applicable";
+                                $config = $statusConfig[$status] ?? $statusConfig["not_applicable"];
+
+                                $html = "<div style=\"display: inline-flex; align-items: center; padding: 12px 20px; background: linear-gradient(135deg, #{$config['color']}-500, #{$config['color']}-600); border-radius: 12px; font-size: 16px; font-weight: bold; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);\">";
+                                $html .= "<span style=\"margin-right: 8px; font-size: 20px;\">{$config['icon']}</span>";
+                                $html .= "<span>{$config['label']}</span>";
+                                $html .= "</div>";
+
+                                if ($status === "sent" && $record->payment_sent_at) {
+                                    $html .= "<p style=\"margin-top: 8px; font-size: 14px; color: #059669;\">Sent on: " . $record->payment_sent_at->format("M d, Y \\a\\t H:i") . "</p>";
+                                }
+
+                                if ($status === "received" && $record->payment_received_at) {
+                                    $html .= "<p style=\"margin-top: 8px; font-size: 14px; color: #059669;\">Confirmed on: " . $record->payment_received_at->format("M d, Y \\a\\t H:i") . "</p>";
+                                }
+
+                                return new \Illuminate\Support\HtmlString($html);
+                            })
+                            ->columnSpanFull(),
+
+                        Forms\Components\Select::make("payment_status")
+                            ->label("Payment Status (Technical)")
+                            ->options([
+                                "not_applicable" => "Not Applicable",
+                                "pending" => "Payment Processing",
+                                "requirements_verified" => "Requirements Verified",
+                                "sent" => "Payment Sent",
+                                "received" => "Received by Winner",
+                            ])
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->visible(false),
+
+                        Forms\Components\DateTimePicker::make("payment_pending_at")
+                            ->label("Payment Pending Since")
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->visible(fn ($record) => $record && $record->payment_pending_at),
+
+                        Forms\Components\DateTimePicker::make("payment_verified_at")
+                            ->label("Requirements Verified At")
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->visible(fn ($record) => $record && $record->payment_verified_at),
+
+                        Forms\Components\DateTimePicker::make("payment_sent_at")
+                            ->label("Payment Sent At")
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->visible(fn ($record) => $record && $record->payment_sent_at),
+
+                        Forms\Components\DateTimePicker::make("payment_received_at")
+                            ->label("Payment Received At")
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->visible(fn ($record) => $record && $record->payment_received_at),
+
+                        Forms\Components\Textarea::make("payment_note")
+                            ->label("Payment Notes (Internal)")
+                            ->rows(3)
+                            ->columnSpanFull()
+                            ->helperText("Add notes about payment processing, issues, etc."),
+                    ])
+                    ->columns(2)
+                    ->visible(fn ($record) => $record && $record->status === "approved")
+                    ->collapsible(),
             ]);
     }
 
@@ -236,6 +398,34 @@ class ApplicationResource extends Resource
                 Tables\Columns\TextColumn::make('reviewer.name')
                     ->label('Reviewer')
                     ->toggleable(isToggledHiddenByDefault: true),
+
+                Tables\Columns\BadgeColumn::make('payment_status')
+                    ->label('Payment')
+                    ->colors([
+                        'secondary' => 'not_applicable',
+                        'info' => 'pending',
+                        'primary' => 'requirements_verified',
+                        'success' => 'sent',
+                        'success' => 'received',
+                    ])
+                    ->icons([
+                        'heroicon-o-minus-circle' => 'not_applicable',
+                        'heroicon-o-arrow-path' => 'pending',
+                        'heroicon-o-check-badge' => 'requirements_verified',
+                        'heroicon-o-currency-dollar' => 'sent',
+                        'heroicon-o-check-circle' => 'received',
+                    ])
+                    ->formatStateUsing(fn (string $state): string => match($state) {
+                        'not_applicable' => 'N/A',
+                        'pending' => 'Processing',
+                        'requirements_verified' => 'Verified',
+                        'sent' => '💰 PAID',
+                        'received' => '✅ Confirmed',
+                        default => $state,
+                    })
+                    ->sortable()
+                    ->toggleable()
+                    ->visible(fn () => auth()->user()->isApprover()),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('cycle_id')
@@ -350,6 +540,146 @@ class ApplicationResource extends Resource
                             ->send();
                     }),
 
+
+                Tables\Actions\Action::make("startPayment")
+                    ->label("Start Payment")
+                    ->icon("heroicon-o-currency-dollar")
+                    ->color("info")
+                    ->visible(fn (Application $record) => 
+                        $record->status === "approved" && 
+                        $record->payment_status === "not_applicable" && 
+                        $record->bank_account_number &&
+                        auth()->user()->isApprover()
+                    )
+                    ->requiresConfirmation()
+                    ->modalHeading("Start Payment Processing")
+                    ->modalDescription("This will notify the winner that payment processing has started.")
+                    ->action(function (Application $record) {
+                        $record->update([
+                            "payment_status" => "pending",
+                            "payment_pending_at" => now(),
+                        ]);
+
+                        $record->user->notify(new PaymentPendingNotification($record));
+
+                        AuditLog::logAction(
+                            "application.payment_pending",
+                            auth()->id(),
+                            Application::class,
+                            $record->id
+                        );
+
+                        Notification::make()
+                            ->success()
+                            ->title("Payment Processing Started")
+                            ->body("Winner has been notified.")
+                            ->send();
+                    }),
+
+                Tables\Actions\Action::make("verifyPayment")
+                    ->label("Verify Requirements")
+                    ->icon("heroicon-o-check-badge")
+                    ->color("primary")
+                    ->visible(fn (Application $record) => 
+                        $record->payment_status === "pending" && auth()->user()->isApprover()
+                    )
+                    ->requiresConfirmation()
+                    ->modalHeading("Verify Payment Requirements")
+                    ->modalDescription("Confirm that all requirements have been verified and payment is ready to send.")
+                    ->action(function (Application $record) {
+                        $record->update([
+                            "payment_status" => "requirements_verified",
+                            "payment_verified_at" => now(),
+                        ]);
+
+                        $record->user->notify(new PaymentVerifiedNotification($record));
+
+                        AuditLog::logAction(
+                            "application.payment_verified",
+                            auth()->id(),
+                            Application::class,
+                            $record->id
+                        );
+
+                        Notification::make()
+                            ->success()
+                            ->title("Requirements Verified")
+                            ->body("Winner has been notified.")
+                            ->send();
+                    }),
+
+                Tables\Actions\Action::make("markSent")
+                    ->label("Mark as Sent")
+                    ->icon("heroicon-o-paper-airplane")
+                    ->color("success")
+                    ->visible(fn (Application $record) => 
+                        $record->payment_status === "requirements_verified" && auth()->user()->isApprover()
+                    )
+                    ->requiresConfirmation()
+                    ->modalHeading("Mark Payment as Sent")
+                    ->modalDescription("Confirm that payment has been sent to the winner's bank account.")
+                    ->action(function (Application $record) {
+                        $record->update([
+                            "payment_status" => "sent",
+                            "payment_sent_at" => now(),
+                        ]);
+
+                        $record->user->notify(new PaymentSentNotification($record));
+
+                        AuditLog::logAction(
+                            "application.payment_sent",
+                            auth()->id(),
+                            Application::class,
+                            $record->id
+                        );
+
+                        Notification::make()
+                            ->success()
+                            ->title("Payment Marked as Sent")
+                            ->body("Winner has been notified.")
+                            ->send();
+                    }),
+
+
+                Tables\Actions\Action::make('viewDocuments')
+                    ->label('Documents')
+                    ->icon('heroicon-o-document-text')
+                    ->color('info')
+                    ->modalHeading(fn (Application $record) => 'Documents - ' . $record->user->name)
+                    ->modalDescription(fn (Application $record) => 'Applicant: ' . $record->user->email)
+                    ->modalContent(function (Application $record) {
+                        $documents = $record->documents;
+
+                        if ($documents->isEmpty()) {
+                            return new \Illuminate\Support\HtmlString('<div class="text-center py-8"><p class="text-gray-500">No documents uploaded yet</p></div>');
+                        }
+
+                        $html = '<div class="space-y-3">';
+                        foreach ($documents as $document) {
+                            $typeLabel = ucwords(str_replace('_', ' ', $document->type));
+                            $fileSize = $document->size_bytes ? round($document->size_bytes / 1024, 2) . ' KB' : 'Unknown';
+                            $uploadedDate = $document->uploaded_at ? $document->uploaded_at->format('M d, Y H:i') : 'Unknown';
+
+                            $html .= '<div class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">';
+                            $html .= '<div>';
+                            $html .= '<p class="font-semibold text-gray-900 dark:text-gray-100">' . htmlspecialchars($typeLabel) . '</p>';
+                            $html .= '<p class="text-xs text-gray-500 dark:text-gray-400">' . htmlspecialchars($fileSize) . ' • ' . htmlspecialchars($uploadedDate) . '</p>';
+                            $html .= '</div>';
+                            $html .= '<div class="flex gap-2">';
+                            $html .= '<a href="' . htmlspecialchars($document->getFullUrl()) . '" target="_blank" style="color: white !important; background-color: #2563eb; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; text-decoration: none;" onmouseover="this.style.backgroundColor=\'#1d4ed8\'" onmouseout="this.style.backgroundColor=\'#2563eb\'">View</a>';
+                            $html .= '<a href="' . htmlspecialchars($document->getFullUrl()) . '" download style="color: white !important; background-color: #4b5563; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; text-decoration: none; margin-left: 0.5rem;" onmouseover="this.style.backgroundColor=\'#374151\'" onmouseout="this.style.backgroundColor=\'#4b5563\'">Download</a>';
+                            $html .= '</div>';
+                            $html .= '</div>';
+                        }
+                        $html .= '</div>';
+                        $html .= '<div class="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg"><p class="text-sm text-blue-700 dark:text-blue-300"><strong>Total:</strong> ' . $documents->count() . ' document(s)</p></div>';
+
+                        return new \Illuminate\Support\HtmlString($html);
+                    })
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Close')
+                    ->modalWidth('2xl')
+                    ->slideOver(),
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make()
                     ->visible(fn () => auth()->user()->isReviewer()),

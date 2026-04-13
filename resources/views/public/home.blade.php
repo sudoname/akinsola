@@ -73,7 +73,7 @@
                                                 <span class="font-medium text-red-600 dark:text-red-400">Deadline:</span> {{ $cycle->deadline_at->format('F d, Y') }}
                                             </p>
                                             <p class="text-sm text-gray-500 dark:text-gray-400">
-                                                <span class="font-medium">Tracks:</span> {{ implode(', ', array_map('ucfirst', $cycle->tracks_json)) }}
+                                                <span class="font-medium">Tracks:</span> {{ $cycle->tracks_json ? implode(', ', array_map('ucfirst', $cycle->tracks_json)) : 'Not specified' }}
                                             </p>
                                         </div>
                                     </div>
@@ -88,6 +88,52 @@
                                             Register to Apply
                                         </a>
                                     @endauth
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- Past Cycles with Results Section -->
+    @if(isset($pastCycles) && $pastCycles->isNotEmpty())
+        <div class="py-12 bg-white dark:bg-gray-800">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="text-center">
+                    <h2 class="text-base text-indigo-600 dark:text-indigo-400 font-semibold tracking-wide uppercase">Results Published</h2>
+                    <p class="mt-2 text-3xl leading-8 font-extrabold tracking-tight text-gray-900 dark:text-gray-100 sm:text-4xl">
+                        View Past Winners
+                    </p>
+                </div>
+
+                <div class="mt-10 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+                    @foreach($pastCycles as $cycle)
+                        <div class="flex flex-col rounded-lg shadow-lg overflow-hidden bg-white dark:bg-gray-800 border-2 border-purple-500">
+                            <div class="flex-1 p-6 flex flex-col justify-between">
+                                <div class="flex-1">
+                                    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                        ✓ Closed - View Winners
+                                    </span>
+                                    <div class="block mt-3">
+                                        <p class="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                                            {{ $cycle->title }}
+                                        </p>
+                                        <div class="mt-3 space-y-2">
+                                            <p class="text-sm text-gray-500 dark:text-gray-400">
+                                                <span class="font-medium text-purple-600 dark:text-purple-400">Winners Announced:</span> {{ $cycle->results_release_at->format('F d, Y') }}
+                                            </p>
+                                            <p class="text-sm text-gray-500 dark:text-gray-400">
+                                                <span class="font-medium">Tracks:</span> {{ $cycle->tracks_json ? implode(', ', array_map('ucfirst', $cycle->tracks_json)) : 'Not specified' }}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-6">
+                                    <a href="{{ route('awardees') }}" class="block w-full text-center px-4 py-3 border border-transparent text-base font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700">
+                                        View Winners
+                                    </a>
                                 </div>
                             </div>
                         </div>

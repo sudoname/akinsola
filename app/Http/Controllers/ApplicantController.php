@@ -442,4 +442,64 @@ class ApplicantController extends Controller
             }
         }
     }
+
+    /**
+     * Update bank account information for an approved application.
+     */
+    public function updateBankAccount(Request $request, Application $application)
+    {
+        // Authorization: must be the owner and must be approved
+        if ($application->user_id !== auth()->id()) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        if ($application->status !== 'approved') {
+            return back()->with('error', 'Bank account information can only be updated for approved applications.');
+        }
+
+        $validated = $request->validate([
+            'bank_account_name' => ['required', 'string', 'max:255'],
+            'bank_name' => ['required', 'string', 'max:255'],
+            'bank_account_number' => ['required', 'string', 'regex:/^[0-9]{10}$/'],
+            'bank_account_type' => ['required', 'in:savings,current'],
+        ]);
+
+        $application->update($validated);
+
+        return back()->with('success', 'Bank account information saved successfully!');
+    }
+
+    public function confirmPayment(Request $request, Application $application)
+    {
+        // Authorization: must be the owner and payment must be sent
+        if ($application->user_id !== auth()->id()) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        if ($application->payment_status !== 'sent') {
+            return back()->with('error', 'Payment confirmation is only available when payment has been marked as sent.');
+        }
+
+        // Update payment status to received
+        $application->update([
+            'payment_status' => 'received',
+            'payment_received_at' => now(),
+        ]);
+
+        // Notify admins that payment has been confirmed
+        $admins = \App\Models\User::where('role', 'admin')->get();
+        foreach ($admins as $admin) {
+            $admin->notify(new \App\Notifications\PaymentReceivedNotification($application));
+        }
+
+        // Log the action
+        \App\Models\AuditLog::logAction(
+            'application.payment_received',
+            auth()->id(),
+            \App\Models\Application::class,
+            $application->id
+        );
+
+        return back()->with('success', 'Thank you for confirming! The payment process is now complete.');
+    }
 }

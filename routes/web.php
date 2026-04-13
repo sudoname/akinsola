@@ -33,6 +33,8 @@ Route::middleware('auth')->group(function () {
 Route::middleware(['auth', 'verified', 'throttle:60,1'])->prefix('applicant')->name('applicant.')->group(function () {
     Route::get('/profile', [ApplicantController::class, 'showProfile'])->name('profile');
     Route::post('/profile', [ApplicantController::class, 'updateProfile'])->name('profile.update')->middleware('throttle:10,1');
+    Route::patch('/applications/{application}/bank-account', [ApplicantController::class, 'updateBankAccount'])->name('bank-account.update')->middleware('throttle:10,1');
+    Route::patch('/applications/{application}/payment/confirm', [ApplicantController::class, 'confirmPayment'])->name('payment.confirm')->middleware('throttle:5,1');
 });
 
 Route::middleware(['auth', 'verified', 'throttle:60,1'])->prefix('applications')->name('applications.')->group(function () {

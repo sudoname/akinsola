@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Storage;
 
 class Document extends Model
 {
@@ -63,5 +64,19 @@ class Document extends Model
     public function isPdf(): bool
     {
         return $this->mime_type === 'application/pdf';
+    }
+
+    /**
+     * Get the full URL for the document.
+     */
+    public function getFullUrl(): string
+    {
+        // If URL is already a full URL, return it
+        if (str_starts_with($this->url, 'http://') || str_starts_with($this->url, 'https://')) {
+            return $this->url;
+        }
+
+        // Otherwise, generate URL from storage
+        return Storage::disk('public')->url($this->url);
     }
 }

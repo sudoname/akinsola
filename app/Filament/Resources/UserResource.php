@@ -56,7 +56,21 @@ class UserResource extends Resource
 
                         Forms\Components\DateTimePicker::make('email_verified_at')
                             ->label('Email Verified At')
-                            ->native(false),
+                            ->native(false)
+                            ->helperText('Set a date/time to manually verify this user\'s email. Leave empty to require email verification.')
+                            ->displayFormat('M d, Y H:i')
+                            ->seconds(false),
+
+                        Forms\Components\Actions::make([
+                            Forms\Components\Actions\Action::make('verify_now')
+                                ->label('Verify Email Now')
+                                ->icon('heroicon-o-check-circle')
+                                ->color('success')
+                                ->action(function (\Filament\Forms\Set $set) {
+                                    $set('email_verified_at', now());
+                                })
+                                ->visible(fn ($get) => !$get('email_verified_at')),
+                        ]),
                     ])->columns(2),
 
                 Forms\Components\Section::make('Social Auth (Read Only)')

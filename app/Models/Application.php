@@ -27,6 +27,16 @@ class Application extends Model
         'scholarship_amount',
         'awardee_photo',
         'awardee_profile',
+        'bank_account_name',
+        'bank_name',
+        'bank_account_number',
+        'bank_account_type',
+        'payment_status',
+        'payment_pending_at',
+        'payment_verified_at',
+        'payment_sent_at',
+        'payment_received_at',
+        'payment_note',
     ];
 
     protected function casts(): array
@@ -40,6 +50,10 @@ class Application extends Model
             'score_leadership' => 'decimal:2',
             'score_total' => 'decimal:2',
             'scholarship_amount' => 'decimal:2',
+            'payment_pending_at' => 'datetime',
+            'payment_verified_at' => 'datetime',
+            'payment_sent_at' => 'datetime',
+            'payment_received_at' => 'datetime',
         ];
     }
 

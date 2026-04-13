@@ -14,13 +14,22 @@ class PublicController extends Controller
      */
     public function home()
     {
+        // Get active cycles (deadline not passed)
         $activeCycles = Cycle::where('status', 'published')
             ->where('deadline_at', '>', now())
             ->latest()
             ->take(3)
             ->get();
 
-        return view('public.home', compact('activeCycles'));
+        // Get recent past cycles with results (deadline passed, results visible)
+        $pastCycles = Cycle::where('status', 'published')
+            ->where('deadline_at', '<=', now())
+            ->where('results_release_at', '<=', now())
+            ->latest()
+            ->take(2)
+            ->get();
+
+        return view('public.home', compact('activeCycles', 'pastCycles'));
     }
 
     /**
@@ -53,13 +62,11 @@ class PublicController extends Controller
             return $cycle->resultsAreVisible();
         });
 
-        // Get approved applications with awardee information for cycles with visible results
+        // Get approved applications for cycles with visible results
         $awardees = collect();
         foreach ($cycles as $cycle) {
             $cycleAwardees = Application::where('cycle_id', $cycle->id)
                 ->where('status', 'approved')
-                ->whereNotNull('awardee_photo')
-                ->whereNotNull('awardee_profile')
                 ->with(['user', 'cycle', 'educationRecord'])
                 ->get();
 
